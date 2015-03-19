@@ -1,0 +1,272 @@
+// Polulu QTR Sensor
+#include <QTRSensors.h> 
+
+// Defining
+#define NUM_OF_SENSORS 8  
+#define LINE_LOST -1
+#define EDGE_LEFT -2
+#define EDGE_RIGHT -3
+#define WHITE_TRASHOLD 300
+#define BLACK_TRASHOLD 100
+#define FORWARD_MAX 255
+#define REVERSE_MAX 20
+#define CALIBRATION_SPEED 150
+#define REVOLVE_LEFT 0
+#define REVOLVE_RIGHT 1
+
+// Sensor declaration
+QTRSensorsRC qtr((unsigned char[]) {2, 3, 4, 5, 6, 7, 8, 9}, NUM_OF_SENSORS); 
+unsigned int sensors[NUM_OF_SENSORS];
+int pos = qtr.readLine(sensors);
+int TRACKING_WHITE = 1;
+
+
+// LineLost?
+bool lineLost(){
+bool lost = true;
+  
+  if (TRACKING_WHITE == 0)
+  {
+    for(int i=0;i<NUM_OF_SENSORS;i++)
+    {
+      if (sensors[i] > WHITE_TRASHOLD)
+      {
+	lost =false;
+      }
+    }
+  }
+  else
+  {
+    for(int i=0;i<NUM_OF_SENSORS;i++)
+    {
+      if (sensors[i] < BLACK_TRASHOLD)
+      {
+	lost =false;
+      }
+    }
+  }
+  return lost;
+}
+
+// Color Detection
+void detectTrackColor()
+{
+  if ((sensors[0] < WHITE_TRASHOLD) &&
+      (sensors[NUM_OF_SENSORS - 1] < WHITE_TRASHOLD))
+    TRACKING_WHITE = 0;
+
+  if ((sensors[0] > BLACK_TRASHOLD) &&
+      (sensors[NUM_OF_SENSORS - 1]> BLACK_TRASHOLD))
+    TRACKING_WHITE = 1;
+}
+
+
+int checkEdge()
+{ 
+  if (TRACKING_WHITE == 0){
+    if ((sensors[NUM_OF_SENSORS - 1] > WHITE_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 2] > WHITE_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 3] > WHITE_TRASHOLD) &&
+	(sensors[0] < WHITE_TRASHOLD) &&
+	(sensors[1] < WHITE_TRASHOLD) &&
+	(sensors[2] < WHITE_TRASHOLD)){
+      return EDGE_LEFT;
+    }
+    if ((sensors[0] > WHITE_TRASHOLD) &&
+	(sensors[1] > WHITE_TRASHOLD) &&
+	(sensors[2] > WHITE_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 1] < WHITE_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 2] < WHITE_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 3] < WHITE_TRASHOLD)){
+      return EDGE_RIGHT;
+    }
+  }else{
+    if ((sensors[NUM_OF_SENSORS - 1] < BLACK_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 2] < BLACK_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 3] < BLACK_TRASHOLD) &&
+	(sensors[0] > BLACK_TRASHOLD) &&
+	(sensors[1] > BLACK_TRASHOLD) &&
+	(sensors[2] > BLACK_TRASHOLD)){
+      return EDGE_LEFT;
+    }
+    if ((sensors[0] < BLACK_TRASHOLD) &&
+	(sensors[1] < BLACK_TRASHOLD) &&
+	(sensors[2] < BLACK_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 1] > BLACK_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 2] > BLACK_TRASHOLD) &&
+	(sensors[NUM_OF_SENSORS - 3] > BLACK_TRASHOLD)){
+      return EDGE_RIGHT;
+    }
+  }
+  return 0;
+}
+
+
+// PID Following
+void followPID()
+{
+  unsigned int sensors[NUM_OF_SENSORS];
+  int pos = qtr.readLine(sensors);
+  float kp = 1, kd = 0, ki = 0;
+  int integral = 0;
+  int last_proportional = 0;
+  int center = (((NUM_OF_SENSORS - 1) * 1000) / 2); 
+  int proportional = pos - center;
+  int derivative = proportional - last_proportional;
+    
+  int power_difference = (proportional * kp) + (integral * ki) + (derivative * kd);
+  last_proportional = proportional;
+  integral  += proportional;
+  
+  const int max = 200;
+  const int max_diffrence = 20;
+  const int factor_diffrence = 2;
+    
+  if(power_difference > max)
+      power_difference = max;
+  if(power_difference < -max)
+      power_difference = -max;
+        
+        
+  // if diffrence is too much... 
+  int leftMotorSpeed  = max;
+  int rightMotorSpeed = max-power_difference;
+  
+  if(power_difference < 0)
+  {
+      leftMotorSpeed  = max+power_difference;
+      rightMotorSpeed = max;
+  }
+
+  if(leftMotorSpeed - rightMotorSpeed > max_diffrence)
+  {
+      leftMotorSpeed -= (leftMotorSpeed - rightMotorSpeed)/factor_diffrence;
+  } 
+  else if(rightMotorSpeed - leftMotorSpeed > max_diffrence)
+  {
+      rightMotorSpeed -= (rightMotorSpeed - leftMotorSpeed)/factor_diffrence;
+  }
+
+ setMotorsForward(leftMotorSpeed,rightMotorSpeed);
+ Serial.print(" Right: "+String(rightMotorSpeed));
+ Serial.print(" Left: "+String(leftMotorSpeed)); 
+}
+
+
+// Sends motor speed values to pins
+void setMotorsForward(int motor1speed, int motor2speed)
+{ 
+/*  
+ analogWrite(5, 0);            // left back
+ analogWrite(6, motor1speed);  // left forward
+ analogWrite(9, 0);            // right back
+ analogWrite(10, motor2speed); // right forward
+*/
+ digitalWrite(6,HIGH);         
+ digitalWrite(10,HIGH);
+ digitalWrite(5,LOW);
+ digitalWrite(9,LOW);
+ analogWrite(3, motor1speed);
+ analogWrite(11, motor2speed);
+ 
+}
+
+
+void setMotorsLeft(int motor1speed, int motor2speed)
+{ 
+ digitalWrite(6,LOW);         
+ digitalWrite(10,HIGH);
+ digitalWrite(5,HIGH);
+ digitalWrite(9,LOW);
+ analogWrite(3, motor1speed);
+ analogWrite(11, motor2speed);
+}
+
+
+void setMotorsRight(int motor1speed, int motor2speed)
+{ 
+ digitalWrite(6,HIGH);         
+ digitalWrite(10,LOW);
+ digitalWrite(5,LOW);
+ digitalWrite(9,HIGH);
+ analogWrite(3, motor1speed);
+ analogWrite(11, motor2speed);
+ 
+}
+
+
+
+// Calibration
+void calibration() {
+  int i ;
+  for (i = 0; i < 100; i++)  
+    {
+      if(i%25==0)
+          {
+              if((i/5)%2==0)
+                setMotorsRight(100,100); 
+              else 
+                setMotorsLeft(100,00); 
+          }
+      qtr.calibrate();
+      delay(20);
+    }
+    setMotorsForward(200,200);
+}
+
+
+
+
+
+void setup()
+{
+  Serial.begin(9600);
+//  pinMode(5,OUTPUT);   // pin output
+//  pinMode(6,OUTPUT);   // pin output
+//  pinMode(9,OUTPUT);   // pin output
+//  pinMode(10,OUTPUT);  // pin output
+  
+ // while(button.isPressed() == false);
+  calibration();
+ // while(button.isPressed() == false);
+  delay(2000);
+
+ // setMotorsForward(FORWARD_MAX,FORWARD_MAX);
+}
+
+
+void loop()
+{
+  lineLost();
+    if (pos != LINE_LOST)
+    {  
+      if (pos == EDGE_RIGHT)
+        setMotorsRight(REVERSE_MAX, FORWARD_MAX);
+      else if (pos == EDGE_LEFT)
+        setMotorsLeft(FORWARD_MAX,REVERSE_MAX);
+      else
+        followPID();  
+    }
+    
+
+unsigned int sensors[NUM_OF_SENSORS];
+int pos = qtr.readLine(sensors);
+
+followPID();
+
+ // prints the positions
+ Serial.print("Pos: "+String(pos));
+ Serial.print(" ");
+ Serial.println();
+}
+
+
+
+
+
+
+
+
+
+
+
